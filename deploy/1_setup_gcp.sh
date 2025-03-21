@@ -17,7 +17,7 @@ gcloud config set project $PROJECT_ID
 
 # Enable required APIs
 gcloud services enable compute.googleapis.com
-
+s
 # Create VM instance
 echo "Creating e2-micro instance..."
 gcloud compute instances create $INSTANCE_NAME \

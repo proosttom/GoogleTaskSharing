@@ -124,6 +124,27 @@ Update application:
 - Network egress: Free for first 1GB/month
 - Total estimated cost: ~$4/month
 
+## Development
+
+### Dependency Management
+The project uses a single source of truth for dependencies:
+- `requirements.txt` contains all project dependencies with pinned versions
+- `setup.py` reads from `requirements.txt` for package installation
+- Docker and deployment scripts use `requirements.txt` for consistency
+- Development environment setup uses `requirements.txt`
+
+To add or update dependencies:
+1. Update `requirements.txt` with the new package and version
+2. The change will automatically propagate to all installation methods
+3. Commit both `requirements.txt` and `setup.py` to version control
+
+### Running Tests
+Run the test suite:
+
+```bash
+pytest
+```
+
 ## Project Structure
 
 ```
@@ -152,14 +173,6 @@ Main project dependencies:
 - pyyaml==6.0.1
 - pytest==8.0.0
 - watchdog==3.0.0
-
-## Testing
-
-Run the test suite:
-
-```bash
-pytest
-```
 
 ## Architecture
 
