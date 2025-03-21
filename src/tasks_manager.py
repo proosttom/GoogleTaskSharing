@@ -148,99 +148,105 @@ class TasksManager:
         self._last_cache_time.pop(cache_key, None)
 
     def sync_task_list(self, source_list_name: str, target_manager) -> None:
-        """Sync tasks from source list to target list, preventing duplicates and handling completed tasks."""
+        """Sync tasks from source list to target list, handling completed tasks and duplicates."""
         source_tasks = self.get_tasks(source_list_name)
         target_tasks = target_manager.get_tasks(source_list_name)
 
         # Create lookup dictionaries
         target_tasks_by_id = {task['id']: task for task in target_tasks}
-        target_tasks_by_title = {
-            task.get('title', ''): task 
-            for task in target_tasks
-            if task.get('status') != 'completed'  # Only match against non-completed tasks
-        }
+        
+        # Group tasks by title and due date to detect duplicates
+        source_tasks_by_key = {}
+        target_tasks_by_key = {}
+        
+        for task in source_tasks:
+            key = (task.get('title', ''), task.get('due', ''))
+            if key not in source_tasks_by_key:
+                source_tasks_by_key[key] = []
+            source_tasks_by_key[key].append(task)
+            
+        for task in target_tasks:
+            key = (task.get('title', ''), task.get('due', ''))
+            if key not in target_tasks_by_key:
+                target_tasks_by_key[key] = []
+            target_tasks_by_key[key].append(task)
 
         # Track which target tasks have been processed
         processed_target_tasks = set()
 
-        # First, handle completed tasks in target
-        completed_task_titles = {
-            task.get('title', ''): task['id']
-            for task in target_tasks
-            if task.get('status') == 'completed'
-        }
-
-        # Process each source task
-        for source_task in source_tasks:
-            title = source_task.get('title', '')
-            source_status = source_task.get('status', 'needsAction')
-            task_id = source_task['id']
-
-            # Skip completed source tasks
-            if source_status == 'completed':
-                continue
-
-            # If this task was completed in target, skip it
-            if title in completed_task_titles:
-                target_id = completed_task_titles[title]
-                processed_target_tasks.add(target_id)
-                continue
-
-            target_task = None
-            target_id = None
-
-            # First try to find a match by ID
-            if task_id in target_tasks_by_id:
-                target_task = target_tasks_by_id[task_id]
-                target_id = task_id
-                logging.info(f"Found task match by ID for '{title}'")
+        # First handle completed tasks and duplicates
+        for key, source_task_group in source_tasks_by_key.items():
+            title, due = key
+            target_task_group = target_tasks_by_key.get(key, [])
             
-            # Then try to find a match by title
-            elif title in target_tasks_by_title:
-                target_task = target_tasks_by_title[title]
-                target_id = target_task['id']
-                logging.info(f"Found task match by title for '{title}'")
-
-            if target_task:
-                target_status = target_task.get('status', 'needsAction')
-                
-                # If target task is completed, don't update it
-                if target_status == 'completed':
-                    logging.info(f"Skipping update for completed task '{title}'")
+            # Check if any task in either group is completed
+            source_completed = any(task.get('status') == 'completed' for task in source_task_group)
+            target_completed = any(task.get('status') == 'completed' for task in target_task_group)
+            
+            if source_completed or target_completed:
+                # If completed in either side, delete from both sides
+                logging.info(f"Task '{title}' is completed, removing from both accounts")
+                for task in source_task_group:
+                    self.delete_task(source_list_name, task['id'])
+                for task in target_task_group:
+                    target_id = task['id']
+                    target_manager.delete_task(source_list_name, target_id)
                     processed_target_tasks.add(target_id)
-                    continue
-
-                # Update if tasks differ
-                if self._tasks_differ(source_task, target_task):
-                    logging.info(f"Updating task '{title}' due to content difference")
-                    target_manager.update_task(source_list_name, target_id, source_task)
-                
-                processed_target_tasks.add(target_id)
+                continue
             
-            # If no match found and source task is not completed, create new task
-            elif source_status != 'completed':
-                logging.info(f"Creating new task '{title}'")
+            # Handle duplicates by keeping only one task
+            if len(source_task_group) > 1 or len(target_task_group) > 1:
+                # Keep the most recently updated task
+                kept_task = max(
+                    source_task_group + target_task_group,
+                    key=lambda t: t.get('updated', '')
+                )
+                
+                # Remove all other duplicates
+                for task in source_task_group:
+                    if task['id'] != kept_task['id']:
+                        self.delete_task(source_list_name, task['id'])
+                
+                for task in target_task_group:
+                    target_id = task['id']
+                    if target_id != kept_task['id']:
+                        target_manager.delete_task(source_list_name, target_id)
+                    processed_target_tasks.add(target_id)
+                
+                # Ensure the kept task exists in both accounts
+                if kept_task['id'] in target_tasks_by_id:
+                    if self._tasks_differ(kept_task, target_tasks_by_id[kept_task['id']]):
+                        target_manager.update_task(source_list_name, kept_task['id'], kept_task)
+                else:
+                    new_task = kept_task.copy()
+                    new_task.pop('id', None)
+                    target_manager.create_task(source_list_name, new_task)
+                continue
+            
+            # Handle single tasks (no duplicates)
+            source_task = source_task_group[0] if source_task_group else None
+            target_task = target_task_group[0] if target_task_group else None
+            
+            if source_task and target_task:
+                target_id = target_task['id']
+                if self._tasks_differ(source_task, target_task):
+                    target_manager.update_task(source_list_name, target_id, source_task)
+                processed_target_tasks.add(target_id)
+            elif source_task:
                 new_task = source_task.copy()
-                new_task.pop('id', None)  # Remove source ID to let Google generate a new one
+                new_task.pop('id', None)
                 target_manager.create_task(source_list_name, new_task)
 
-        # Only delete tasks that:
-        # 1. Haven't been processed
-        # 2. Aren't completed
+        # Delete any remaining unprocessed tasks in target that aren't completed
         for target_task in target_tasks:
             target_id = target_task['id']
             if target_id not in processed_target_tasks:
                 target_status = target_task.get('status', 'needsAction')
                 target_title = target_task.get('title', '')
                 
-                # Never delete completed tasks
-                if target_status == 'completed':
-                    logging.info(f"Keeping completed task '{target_title}'")
-                    continue
-                
-                # Only delete non-completed tasks that no longer exist in source
-                logging.info(f"Deleting task '{target_title}' as it no longer exists in source")
-                target_manager.delete_task(source_list_name, target_id)
+                if target_status != 'completed':
+                    logging.info(f"Deleting task '{target_title}' as it no longer exists in source")
+                    target_manager.delete_task(source_list_name, target_id)
 
     @staticmethod
     def _task_content_key(task: Dict) -> str:
@@ -249,6 +255,6 @@ class TasksManager:
 
     @staticmethod
     def _tasks_differ(task1: Dict, task2: Dict) -> bool:
-        """Check if two tasks have different content, ignoring status which is handled separately."""
-        relevant_fields = ['title', 'notes', 'due']  # Removed 'status' as it's handled separately
+        """Check if two tasks have different content."""
+        relevant_fields = ['title', 'notes', 'due']
         return any(task1.get(field) != task2.get(field) for field in relevant_fields)
