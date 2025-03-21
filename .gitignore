@@ -37,3 +37,5 @@ config/config.yaml
 
 # Environment variables
 .env
+venv
+.DS_Store
