@@ -227,31 +227,20 @@ class TasksManager:
         # Only delete tasks that:
         # 1. Haven't been processed
         # 2. Aren't completed
-        # 3. Are older than 24 hours if completed
-        current_time = time.time()
         for target_task in target_tasks:
             target_id = target_task['id']
             if target_id not in processed_target_tasks:
                 target_status = target_task.get('status', 'needsAction')
                 target_title = target_task.get('title', '')
                 
-                # Keep completed tasks for 24 hours
+                # Never delete completed tasks
                 if target_status == 'completed':
-                    completed_time = target_task.get('completed')
-                    if completed_time:
-                        try:
-                            # Parse ISO 8601 timestamp and convert to Unix timestamp
-                            completed_timestamp = time.mktime(time.strptime(completed_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
-                            if current_time - completed_timestamp < 24 * 3600:  # 24 hours
-                                logging.info(f"Keeping recently completed task '{target_title}'")
-                                continue
-                        except (ValueError, TypeError):
-                            pass
-                    
-                # Don't delete completed tasks that we haven't seen in source
-                else:
-                    logging.info(f"Deleting task '{target_title}' as it no longer exists in source")
-                    target_manager.delete_task(source_list_name, target_id)
+                    logging.info(f"Keeping completed task '{target_title}'")
+                    continue
+                
+                # Only delete non-completed tasks that no longer exist in source
+                logging.info(f"Deleting task '{target_title}' as it no longer exists in source")
+                target_manager.delete_task(source_list_name, target_id)
 
     @staticmethod
     def _task_content_key(task: Dict) -> str:
