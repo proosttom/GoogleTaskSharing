@@ -3,6 +3,7 @@ import time
 from auth import AuthManager
 from tasks_manager import TasksManager
 import logging
+from googleapiclient.errors import HttpError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,7 +17,10 @@ def load_config():
 def main():
     config = load_config()
     auth_manager = AuthManager()
-    sync_interval = config.get('sync_interval_seconds', 30)
+    base_sync_interval = config.get('sync_interval_seconds', 300)  # Default 5 minutes
+    current_sync_interval = base_sync_interval
+    backoff_multiplier = 2
+    max_sync_interval = 3600  # Max 1 hour
 
     # Initialize task managers for all users
     user_managers = {}
@@ -37,20 +41,32 @@ def main():
                     share_with = task_list.get('share_with', [])
 
                     logging.info(f"Syncing task list '{list_name}' from {email}")
-                    source_manager = user_managers[email]
-
+                    
                     # Sync with each shared user
                     for target_email in share_with:
                         if target_email in user_managers:
-                            target_manager = user_managers[target_email]
-                            source_manager.sync_task_list(list_name, target_manager)
-                            logging.info(f"Synced '{list_name}' with {target_email}")
+                            user_managers[email].sync_task_list(
+                                list_name, 
+                                user_managers[target_email]
+                            )
+            
+            # Reset sync interval on successful sync
+            if current_sync_interval != base_sync_interval:
+                logging.info(f"Resetting sync interval to {base_sync_interval} seconds")
+                current_sync_interval = base_sync_interval
 
-            time.sleep(sync_interval)
+        except HttpError as e:
+            if e.resp.status == 403 and 'quotaExceeded' in str(e):
+                # Increase sync interval with exponential backoff
+                current_sync_interval = min(current_sync_interval * backoff_multiplier, max_sync_interval)
+                logging.warning(f"Quota exceeded. Increasing sync interval to {current_sync_interval} seconds")
+            else:
+                logging.error(f"Error during sync: {e}")
 
         except Exception as e:
-            logging.error(f"Error during sync: {str(e)}")
-            time.sleep(5)  # Wait a bit before retrying
+            logging.error(f"Error during sync: {e}")
+
+        time.sleep(current_sync_interval)
 
 if __name__ == '__main__':
     main()

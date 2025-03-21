@@ -1,4 +1,4 @@
-sync_interval_seconds: 30  # How often to check for changes
+sync_interval_seconds: 300  # 5 minutes, adjust based on your needs
 
 users:
   - email: "tom@example.com"

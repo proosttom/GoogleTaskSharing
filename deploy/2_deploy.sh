@@ -24,7 +24,7 @@ sudo apt-get upgrade -y
 sudo apt-get install -y python3-pip python3-venv
 
 # Create service user
-sudo useradd -r -s /bin/false tasksync
+sudo useradd -r -s /bin/false tasksync || true
 
 # Create application directory
 sudo mkdir -p /opt/tasksync
@@ -61,8 +61,13 @@ echo "Running remote setup..."
 gcloud compute ssh $INSTANCE_NAME --zone=$ZONE -- "
     cd /tmp && \
     chmod +x remote_setup.sh && \
-    sudo mv src config requirements.txt /opt/tasksync/ && \
-    sudo mv tasksync.service /opt/tasksync/ && \
+    sudo systemctl stop tasksync && \
+    sudo rm -rf /opt/tasksync/src/* /opt/tasksync/config/* && \
+    sudo cp -r src/* /opt/tasksync/src/ && \
+    sudo cp -r config/* /opt/tasksync/config/ && \
+    sudo cp requirements.txt /opt/tasksync/ && \
+    sudo cp tasksync.service /opt/tasksync/ && \
+    sudo chown -R tasksync:tasksync /opt/tasksync && \
     ./remote_setup.sh
 "
 
