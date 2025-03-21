@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  task-sync:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspace
+      - ./config:/workspace/config
+    working_dir: /workspace
+    command: python src/main.py
+    restart: unless-stopped

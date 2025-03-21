@@ -1,0 +1,11 @@
+sync_interval_seconds: 30  # How often to check for changes
+
+users:
+  - email: "tom@example.com"
+    task_lists:
+      - name: "gezin"
+        share_with:
+          - "evy@example.com"
+
+  - email: "evy@example.com"
+    task_lists: []  # Will be auto-populated with shared lists
