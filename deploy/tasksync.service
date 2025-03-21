@@ -1,0 +1,15 @@
+[Unit]
+Description=Google Tasks Sync Service
+After=network.target
+
+[Service]
+Type=simple
+User=tasksync
+WorkingDirectory=/opt/tasksync
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/tasksync/venv/bin/python src/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

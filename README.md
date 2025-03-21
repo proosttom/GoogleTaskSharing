@@ -67,6 +67,63 @@ python src/main.py
 
 The service will start monitoring the configured task lists and synchronize any changes between users.
 
+### 6. GCP Deployment
+
+#### A. Install Google Cloud SDK
+```bash
+# macOS with Homebrew
+brew install --cask google-cloud-sdk
+
+# Initialize and authenticate
+gcloud init
+gcloud auth login
+```
+
+#### B. Deploy to GCP e2-micro (Cost-effective Option)
+```bash
+# 1. Enable Compute Engine API
+gcloud services enable compute.googleapis.com
+
+# 2. Create VM and deploy application
+./deploy/1_setup_gcp.sh your-project-id
+./deploy/2_deploy.sh <instance-ip>  # IP will be shown after previous command
+
+# 3. Verify deployment
+gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo systemctl status tasksync'
+```
+
+#### C. Monitoring and Management
+
+View logs in real-time:
+```bash
+# View service logs
+gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo journalctl -u tasksync -f'
+
+# Check service status
+gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo systemctl status tasksync'
+
+# Restart service
+gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo systemctl restart tasksync'
+
+# View system resources
+gcloud compute ssh task-sync --zone=europe-west1-b -- 'top -b -n 1'
+```
+
+Create backup:
+```bash
+./deploy/backup.sh <instance-ip>
+```
+
+Update application:
+```bash
+./deploy/update.sh <instance-ip>
+```
+
+### Costs
+- e2-micro instance: ~$3-4/month
+- Network egress: Free for first 1GB/month
+- Total estimated cost: ~$4/month
+
 ## Project Structure
 
 ```
