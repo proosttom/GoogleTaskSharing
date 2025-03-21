@@ -1,62 +1,73 @@
 import os
-import pickle
+import logging
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
+import pickle
 
 SCOPES = ['https://www.googleapis.com/auth/tasks']
-TOKEN_DIR = os.path.join('config', 'tokens')
 
-class AuthManager:
-    def __init__(self):
-        self.credentials_path = os.path.join('config', 'credentials.json')
-        os.makedirs(TOKEN_DIR, exist_ok=True)
+def get_credentials(email, credentials_path, token_dir):
+    """Gets valid user credentials from storage.
 
-    def get_credentials(self, user_email):
-        """Get valid credentials for the given user."""
-        token_path = os.path.join(TOKEN_DIR, f'{user_email}.token')
-        creds = None
+    If nothing has been stored, or if the stored credentials are invalid,
+    the OAuth2 flow is completed to obtain the new credentials.
+    """
+    if not os.path.exists(token_dir):
+        os.makedirs(token_dir)
+        
+    token_path = os.path.join(token_dir, f"{email}.token")
+    creds = None
 
-        # Verify credentials file exists
-        if not os.path.exists(self.credentials_path):
-            raise FileNotFoundError(f"Credentials file not found at {self.credentials_path}")
+    if os.path.exists(token_path):
+        logging.info(f"Loading existing token for {email} from {token_path}")
+        try:
+            with open(token_path, 'rb') as token:
+                creds = pickle.load(token)
+            logging.info(f"Successfully loaded token for {email}")
+        except Exception as e:
+            logging.error(f"Error loading token for {email}: {e}")
+            creds = None
 
-        if os.path.exists(token_path):
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            logging.info(f"Token expired for {email}, attempting refresh")
             try:
-                with open(token_path, 'rb') as token:
-                    creds = pickle.load(token)
+                creds.refresh(Request())
+                logging.info(f"Successfully refreshed token for {email}")
             except Exception as e:
-                print(f"Error loading token file: {e}")
+                logging.error(f"Failed to refresh token for {email}: {e}")
+                # Force a new token flow
                 creds = None
-
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                except Exception as e:
-                    print(f"Error refreshing token: {e}")
-                    creds = None
+        
+        if not creds:
+            if not os.path.exists(credentials_path):
+                raise FileNotFoundError(
+                    f"credentials.json not found at {credentials_path}. "
+                    "Please download it from the Google Cloud Console "
+                    "and place it in the config directory."
+                )
             
-            if not creds:
-                try:
-                    flow = InstalledAppFlow.from_client_secrets_file(
-                        self.credentials_path, SCOPES)
-                    # Set port to a specific number and add more parameters for debugging
-                    creds = flow.run_local_server(
-                        port=8080,
-                        authorization_prompt_message='Please authenticate in your browser',
-                        success_message='Authentication successful! You may close this window.'
-                    )
-                except Exception as e:
-                    raise RuntimeError(f"Authentication flow failed: {e}")
+            logging.info(f"No valid credentials found for {email}, starting new OAuth flow")
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credentials_path, SCOPES)
+            creds = flow.run_local_server(port=0)
+            logging.info(f"Successfully obtained new token for {email}")
 
-            try:
-                with open(token_path, 'wb') as token:
-                    pickle.dump(creds, token)
-            except Exception as e:
-                print(f"Warning: Failed to save token: {e}")
+        # Save the credentials for the next run
+        logging.info(f"Saving token for {email} to {token_path}")
+        try:
+            with open(token_path, 'wb') as token:
+                pickle.dump(creds, token)
+            logging.info(f"Successfully saved token for {email}")
+        except Exception as e:
+            logging.error(f"Failed to save token for {email}: {e}")
 
-        return creds
+    # Verify the credentials are valid
+    if not creds or not creds.valid:
+        raise RuntimeError(f"Failed to obtain valid credentials for {email}")
+        
+    return creds
 
 if __name__ == '__main__':
     import yaml
@@ -65,10 +76,11 @@ if __name__ == '__main__':
     with open('config/config.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
-    auth_manager = AuthManager()
+    credentials_path = os.path.join('config', 'credentials.json')
+    token_dir = os.path.join('config', 'tokens')
     
     # Authenticate each user
     for user in config['users']:
         print(f"Authenticating {user['email']}...")
-        auth_manager.get_credentials(user['email'])
+        get_credentials(user['email'], credentials_path, token_dir)
         print(f"Successfully authenticated {user['email']}")
