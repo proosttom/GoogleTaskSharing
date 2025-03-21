@@ -56,10 +56,34 @@ def main():
                 current_sync_interval = base_sync_interval
 
         except HttpError as e:
-            if e.resp.status == 403 and 'quotaExceeded' in str(e):
-                # Increase sync interval with exponential backoff
-                current_sync_interval = min(current_sync_interval * backoff_multiplier, max_sync_interval)
-                logging.warning(f"Quota exceeded. Increasing sync interval to {current_sync_interval} seconds")
+            error_content = e.content.decode('utf-8') if hasattr(e, 'content') else str(e)
+            error_reason = e.reason if hasattr(e, 'reason') else 'Unknown reason'
+            error_status = e.resp.status if hasattr(e, 'resp') else 'Unknown status'
+            error_uri = e.uri if hasattr(e, 'uri') else 'Unknown URI'
+            
+            logging.error(
+                f"HTTP Error:\n"
+                f"Status: {error_status}\n"
+                f"Reason: {error_reason}\n"
+                f"URI: {error_uri}\n"
+                f"Content: {error_content}"
+            )
+            
+            if e.resp.status == 403:
+                if 'quotaExceeded' in str(e):
+                    # Increase sync interval with exponential backoff
+                    current_sync_interval = min(current_sync_interval * backoff_multiplier, max_sync_interval)
+                    logging.warning(f"Quota exceeded. Increasing sync interval to {current_sync_interval} seconds")
+                else:
+                    logging.error("Access forbidden - this might be an authentication or permission issue")
+                    # Check if tokens need refresh
+                    for email, manager in user_managers.items():
+                        try:
+                            # Force a credentials refresh
+                            manager.service._http.request.credentials.refresh(manager.service._http.request)
+                            logging.info(f"Successfully refreshed credentials for {email}")
+                        except Exception as refresh_error:
+                            logging.error(f"Failed to refresh credentials for {email}: {refresh_error}")
             else:
                 logging.error(f"Error during sync: {e}")
 
