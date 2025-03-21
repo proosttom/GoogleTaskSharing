@@ -148,61 +148,118 @@ class TasksManager:
         self._last_cache_time.pop(cache_key, None)
 
     def sync_task_list(self, source_list_name: str, target_manager) -> None:
-        """Sync tasks from source list to target list, preventing duplicates."""
+        """Sync tasks from source list to target list, preventing duplicates and handling completed tasks."""
         source_tasks = self.get_tasks(source_list_name)
         target_tasks = target_manager.get_tasks(source_list_name)
 
         # Create lookup dictionaries
         target_tasks_by_id = {task['id']: task for task in target_tasks}
-        target_tasks_by_content = {
-            self._task_content_key(task): task 
+        target_tasks_by_title = {
+            task.get('title', ''): task 
             for task in target_tasks
+            if task.get('status') != 'completed'  # Only match against non-completed tasks
         }
 
         # Track which target tasks have been processed
         processed_target_tasks = set()
 
+        # First, handle completed tasks in target
+        completed_task_titles = {
+            task.get('title', ''): task['id']
+            for task in target_tasks
+            if task.get('status') == 'completed'
+        }
+
         # Process each source task
         for source_task in source_tasks:
+            title = source_task.get('title', '')
+            source_status = source_task.get('status', 'needsAction')
             task_id = source_task['id']
-            content_key = self._task_content_key(source_task)
+
+            # Skip completed source tasks
+            if source_status == 'completed':
+                continue
+
+            # If this task was completed in target, skip it
+            if title in completed_task_titles:
+                target_id = completed_task_titles[title]
+                processed_target_tasks.add(target_id)
+                continue
+
+            target_task = None
+            target_id = None
 
             # First try to find a match by ID
             if task_id in target_tasks_by_id:
                 target_task = target_tasks_by_id[task_id]
-                if self._tasks_differ(source_task, target_task):
-                    target_manager.update_task(source_list_name, task_id, source_task)
-                processed_target_tasks.add(task_id)
+                target_id = task_id
+                logging.info(f"Found task match by ID for '{title}'")
             
-            # Then try to find a match by content
-            elif content_key in target_tasks_by_content:
-                target_task = target_tasks_by_content[content_key]
+            # Then try to find a match by title
+            elif title in target_tasks_by_title:
+                target_task = target_tasks_by_title[title]
                 target_id = target_task['id']
+                logging.info(f"Found task match by title for '{title}'")
+
+            if target_task:
+                target_status = target_task.get('status', 'needsAction')
+                
+                # If target task is completed, don't update it
+                if target_status == 'completed':
+                    logging.info(f"Skipping update for completed task '{title}'")
+                    processed_target_tasks.add(target_id)
+                    continue
+
+                # Update if tasks differ
                 if self._tasks_differ(source_task, target_task):
+                    logging.info(f"Updating task '{title}' due to content difference")
                     target_manager.update_task(source_list_name, target_id, source_task)
+                
                 processed_target_tasks.add(target_id)
             
-            # If no match found, create new task
-            else:
-                # Create a new task without the source ID
+            # If no match found and source task is not completed, create new task
+            elif source_status != 'completed':
+                logging.info(f"Creating new task '{title}'")
                 new_task = source_task.copy()
                 new_task.pop('id', None)  # Remove source ID to let Google generate a new one
                 target_manager.create_task(source_list_name, new_task)
 
-        # Delete tasks that don't exist in source and weren't processed
+        # Only delete tasks that:
+        # 1. Haven't been processed
+        # 2. Aren't completed
+        # 3. Are older than 24 hours if completed
+        current_time = time.time()
         for target_task in target_tasks:
             target_id = target_task['id']
             if target_id not in processed_target_tasks:
-                target_manager.delete_task(source_list_name, target_id)
+                target_status = target_task.get('status', 'needsAction')
+                target_title = target_task.get('title', '')
+                
+                # Keep completed tasks for 24 hours
+                if target_status == 'completed':
+                    completed_time = target_task.get('completed')
+                    if completed_time:
+                        try:
+                            # Parse ISO 8601 timestamp and convert to Unix timestamp
+                            completed_timestamp = time.mktime(time.strptime(completed_time, "%Y-%m-%dT%H:%M:%S.%fZ"))
+                            if current_time - completed_timestamp < 24 * 3600:  # 24 hours
+                                logging.info(f"Keeping recently completed task '{target_title}'")
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    
+                # Don't delete completed tasks that we haven't seen in source
+                else:
+                    logging.info(f"Deleting task '{target_title}' as it no longer exists in source")
+                    target_manager.delete_task(source_list_name, target_id)
 
     @staticmethod
     def _task_content_key(task: Dict) -> str:
         """Create a unique key for a task based on its content."""
-        relevant_fields = ['title', 'notes', 'status', 'due']
-        return '|'.join(str(task.get(field, '')) for field in relevant_fields)
+        return task.get('title', '')  # Simplified to just use title for matching
 
     @staticmethod
     def _tasks_differ(task1: Dict, task2: Dict) -> bool:
-        """Check if two tasks have different content."""
-        relevant_fields = ['title', 'notes', 'status', 'due']
+        """Check if two tasks have different content, ignoring status which is handled separately."""
+        relevant_fields = ['title', 'notes', 'due']  # Removed 'status' as it's handled separately
         return any(task1.get(field) != task2.get(field) for field in relevant_fields)
