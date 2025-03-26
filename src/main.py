@@ -9,8 +9,35 @@ from tasks_manager import TasksManager, sync_tasks
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(levelname)s - %(message)s'
 )
+
+def update_sync_interval(current_interval: int, base_interval: int, min_interval: int, max_interval: int, 
+                        backoff_multiplier: int, sync_success: bool) -> int:
+    """Update the sync interval based on sync success/failure.
+    
+    Args:
+        current_interval: Current sync interval in seconds
+        base_interval: Base sync interval in seconds
+        min_interval: Minimum allowed sync interval in seconds
+        max_interval: Maximum allowed sync interval in seconds
+        backoff_multiplier: Factor to multiply/divide interval by on failure/success
+        sync_success: Whether the last sync was successful
+    
+    Returns:
+        Updated sync interval in seconds
+    """
+    if sync_success:
+        # On success, gradually reduce interval back to base
+        new_interval = max(min_interval, current_interval // backoff_multiplier)
+        if new_interval != base_interval:
+            logging.info(f"Sync successful, reducing interval to {new_interval} seconds")
+    else:
+        # On failure, increase interval
+        new_interval = min(max_interval, current_interval * backoff_multiplier)
+        logging.warning(f"Sync had errors, increasing interval to {new_interval} seconds")
+    
+    return new_interval
 
 def main():
     # Load configuration
@@ -42,7 +69,7 @@ def main():
     current_sync_interval = base_sync_interval
     backoff_multiplier = 2
     max_sync_interval = 3600  # Maximum 1 hour
-    min_sync_interval = 5    # Minimum 5 seconds
+    min_sync_interval = base_sync_interval
 
     logging.info(f"Starting sync with interval: {base_sync_interval} seconds")
 
@@ -79,21 +106,14 @@ def main():
                         sync_success = False
 
             # Adjust sync interval based on success/failure
-            if sync_success:
-                # On success, gradually reduce interval back to base
-                current_sync_interval = max(
-                    min_sync_interval,
-                    current_sync_interval // backoff_multiplier
-                )
-                if current_sync_interval != base_sync_interval:
-                    logging.info(f"Sync successful, reducing interval to {current_sync_interval} seconds")
-            else:
-                # On failure, increase interval
-                current_sync_interval = min(
-                    max_sync_interval,
-                    current_sync_interval * backoff_multiplier
-                )
-                logging.warning(f"Sync had errors, increasing interval to {current_sync_interval} seconds")
+            current_sync_interval = update_sync_interval(
+                current_sync_interval,
+                base_sync_interval,
+                min_sync_interval,
+                max_sync_interval,
+                backoff_multiplier,
+                sync_success
+            )
 
             time.sleep(current_sync_interval)
 
