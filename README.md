@@ -8,6 +8,10 @@ A service that enables sharing and synchronization of Google Tasks lists between
 - Visual Studio Code with Dev Containers extension (formerly Remote - Containers)
 - Google Cloud Platform account
 
+## Known Issues
+
+- Repeat tasks don't appear as repeat tasks in the sync target user as this is not supported by Google API.
+
 ## Setup Instructions
 
 ### 1. Google Cloud Platform Setup
