@@ -109,7 +109,7 @@ gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo systemctl restart ta
 gcloud compute ssh task-sync --zone=europe-west1-b -- 'top -b -n 1'
 ```
 
-# Stop service
+Stop service
 gcloud compute ssh task-sync --zone=europe-west1-b -- 'sudo systemctl stop tasksync'
 ```
 
