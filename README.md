@@ -192,6 +192,10 @@ If dependencies are missing or not properly installed:
 2. If not in the container, use "Dev Containers: Reopen in Container" command
 3. The container will automatically install all required dependencies
 
+## Resources
+
+https://googleapis.github.io/google-api-python-client/docs/dyn/tasks_v1.tasks.html#patch
+
 ## License
 
 MIT
