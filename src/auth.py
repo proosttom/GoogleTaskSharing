@@ -51,7 +51,7 @@ def get_credentials(email, credentials_path, token_dir):
             logging.info(f"No valid credentials found for {email}, starting new OAuth flow")
             flow = InstalledAppFlow.from_client_secrets_file(
                 credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
             logging.info(f"Successfully obtained new token for {email}")
 
         # Save the credentials for the next run
